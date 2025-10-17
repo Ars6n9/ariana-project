@@ -1,0 +1,118 @@
+name: ariana-project
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: ap-mysql
+    command: ["--default-authentication-plugin=mysql_native_password"]
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+    volumes:
+      - db_data:/var/lib/mysql
+      - ./docker/mysql/my.cnf:/etc/mysql/conf.d/my.cnf:ro
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-u${MYSQL_USER}", "-p${MYSQL_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: ap-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  php:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: ap-php
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./laravel:/var/www/html
+    environment:
+      APP_ENV: local
+      APP_DEBUG: "true"
+      APP_URL: http://localhost:8080
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${MYSQL_DATABASE}
+      DB_USERNAME: ${MYSQL_USER}
+      DB_PASSWORD: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    working_dir: /var/www/html
+
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: ap-nginx
+    depends_on:
+      - php
+    ports:
+      - "8080:80"
+    volumes:
+      - ./laravel:/var/www/html:ro
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+
+  phpmyadmin:
+    image: phpmyadmin:5-apache
+    container_name: ap-phpmyadmin
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      PMA_HOST: mysql
+      PMA_USER: ${MYSQL_USER}
+      PMA_PASSWORD: ${MYSQL_PASSWORD}
+    ports:
+      - "8081:80"
+
+  python:
+    build:
+      context: .
+      dockerfile: docker/python/Dockerfile
+    container_name: ap-python
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      PYTHONUNBUFFERED: 1
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_NAME: ${MYSQL_DATABASE}
+      DB_USER: ${MYSQL_USER}
+      DB_PASS: ${MYSQL_PASSWORD}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CJ_BASE_URL: ${CJ_BASE_URL}
+      CJ_EMAIL: ${CJ_EMAIL}
+      CJ_API_KEY: ${CJ_API_KEY}
+      CJ_ACCESS_TOKEN: ${CJ_ACCESS_TOKEN}
+      CJ_REFRESH_TOKEN: ${CJ_REFRESH_TOKEN}
+      CJ_OFFLINE: ${CJ_OFFLINE:-1}
+      SHOPIFY_SHOP: ${SHOPIFY_SHOP}
+      SHOPIFY_ACCESS_TOKEN: ${SHOPIFY_ACCESS_TOKEN}
+      SHOPIFY_API_VERSION: ${SHOPIFY_API_VERSION:-2024-04}
+      SHOPIFY_OFFLINE: ${SHOPIFY_OFFLINE:-1}
+    volumes:
+      - ./python:/app
+    ports:
+      - "8000:8000"
+
+volumes:
+  db_data:
